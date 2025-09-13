@@ -1,0 +1,56 @@
+name: RDP (Linux)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: Update system & install xrdp
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xrdp xfce4 xfce4-goodies dbus-x11 x11-xserver-utils
+
+          # xrdpを有効化
+          sudo systemctl enable xrdp
+          sudo systemctl restart xrdp
+
+      - name: Create RDP User with Secure Password
+        run: |
+          # ランダムパスワードを生成
+          password=$(openssl rand -base64 12)
+          echo "RDP_PASS=$password" >> $GITHUB_ENV
+
+          # ユーザー作成
+          sudo useradd -m -s /bin/bash rdpuser
+          echo "rdpuser:$password" | sudo chpasswd
+          sudo usermod -aG sudo rdpuser
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-${GITHUB_RUN_ID}
+
+          # Tailscale IPを取得
+          tsIP=$(tailscale ip -4 | head -n1)
+          echo "TAILSCALE_IP=$tsIP" >> $GITHUB_ENV
+
+      - name: Verify RDP Accessibility
+        run: |
+          echo "Tailscale IP: $TAILSCALE_IP"
+          echo "User: rdpuser"
+          echo "Pass: $RDP_PASS"
+          echo "Connect with: xfreerdp /u:rdpuser /p:$RDP_PASS /v:$TAILSCALE_IP"
+
+      - name: Keep Runner Alive
+        run: |
+          echo "=== RDP ACCESS ==="
+          echo "Address: $TAILSCALE_IP"
+          echo "Username: rdpuser"
+          echo "Password: $RDP_PASS"
+          echo "=================="
+          while true; do sleep 300; done
+          
